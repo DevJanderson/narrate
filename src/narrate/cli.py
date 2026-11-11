@@ -1,8 +1,8 @@
 """narrate: read text aloud in Brazilian Portuguese with Kokoro.
 
-Text comes from --text, from stdin, or else from the current selection
-(the primary selection on Wayland or X11). Running it again while it speaks
-stops it.
+Text comes from --text, from stdin, or else (the hotkey case) from a newly
+selected text or, failing that, the last reply of the coding agent in the
+focused window. Running it again while it speaks stops it.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import ctypes.util
 import glob
+import hashlib
 import os
 import queue
 import shutil
@@ -19,7 +20,7 @@ import sys
 import threading
 from pathlib import Path
 
-from . import model
+from . import model, replies
 from .text import clean_markdown, split_chunks
 
 LANG = "pt-br"
@@ -48,6 +49,9 @@ def _runtime_dir() -> Path:
 
 
 PID_FILE = _runtime_dir() / "narrate.pid"
+REPLIES_DIR = _runtime_dir() / "replies"
+# Hash of the last selection read, so an old selection is not read again.
+LAST_SELECTION_FILE = _runtime_dir() / "last-selection.sha256"
 
 
 def _notify(message: str) -> None:
@@ -106,6 +110,33 @@ def _read_selection() -> str | None:
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout
     return "" if found_tool else None
+
+
+def _claim_if_new(selection: str) -> bool:
+    """True the first time a given selection is seen; remembers it."""
+    digest = hashlib.sha256(selection.encode()).hexdigest()
+    try:
+        if LAST_SELECTION_FILE.read_text() == digest:
+            return False
+    except OSError:
+        pass
+    LAST_SELECTION_FILE.write_text(digest)
+    return True
+
+
+def _hotkey_text() -> str:
+    """A newly selected text, else the focused agent's last reply, else ""."""
+    selection = _read_selection()
+    if selection and selection.strip() and _claim_if_new(selection):
+        return selection
+    reply = replies.latest_in_focused_window(REPLIES_DIR)
+    if reply:
+        return reply
+    if selection is None:
+        _notify("Não consegui ler a seleção. Instale wl-clipboard (Wayland) ou xclip (X11).")
+    else:
+        _notify("Nada para ler: selecione um texto ou deixe em foco o terminal do agente.")
+    return ""
 
 
 def _espeak_config():
@@ -187,7 +218,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stop", action="store_true", help="interrompe a leitura em andamento")
     parser.add_argument("--download-model", action="store_true",
                         help=f"baixa o modelo Kokoro (~340 MB) para {model.DATA_DIR}")
+    parser.add_argument("--save-reply", action="store_true",
+                        help="uso interno: chamado pelo hook Stop do Claude Code ou do Codex, "
+                        "guarda a última resposta do agente sem ler")
     args = parser.parse_args(argv)
+
+    if args.save_reply:
+        replies.save(sys.stdin.read(), REPLIES_DIR)
+        return 0
 
     if args.download_model:
         model.download()
@@ -212,13 +250,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if not explicit:
-        text = _read_selection()
-        if text is None:
-            _notify("Não consegui ler a seleção. Instale wl-clipboard (Wayland) ou xclip (X11).")
-            return 1
+        text = _hotkey_text()
     chunks = split_chunks(clean_markdown(text))
     if not chunks:
-        _notify("Nenhum texto selecionado.")
+        if explicit:
+            _notify("Nada para ler: o texto só tinha código ou símbolos.")
         return 0
 
     # SIGTERM keeps its default action: a Python handler would only run after

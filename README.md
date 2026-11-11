@@ -8,6 +8,7 @@ Feito para quem usa agentes de IA no terminal (Claude Code, Codex e outros): as 
 - 🇧🇷 **Vozes em pt-BR:** `pf_dora` (feminina, padrão), `pm_alex` e `pm_santa` (masculinas).
 - 🧹 **Lê só o que interessa:** ignora blocos de código e símbolos de markdown (`**`, `#`, tabelas, links).
 - ⚡ **Leve:** não precisa de placa de vídeo; a voz começa em menos de 1 segundo.
+- 🤖 **Última resposta do agente:** com o terminal do Claude Code ou do Codex em foco, o atalho lê a última resposta, sem precisar selecionar nada.
 - ⏹️ **Liga e desliga no mesmo atalho:** apertar de novo interrompe a leitura.
 
 > **Sistemas suportados:** Linux, com Wayland ou X11. Testado no Arch Linux com Hyprland ([Omarchy](https://omarchy.org/)). Deve funcionar em outras distribuições e desktops (GNOME, KDE, Sway), mas ainda não foi testado neles. macOS e Windows ainda não são suportados.
@@ -101,11 +102,64 @@ Ouviu? Então está tudo pronto. Agora vale configurar o [atalho de teclado](#at
 claude -p "explique o que é um git rebase" | narrate
 ```
 
+### O que o `narrate` lê quando você aperta o atalho
+
+Sem `--text` e sem entrada padrão (que é o caso do atalho de teclado), ele decide nesta ordem:
+
+1. **Você selecionou um texto novo?** Lê o texto selecionado. Funciona em qualquer programa.
+2. **Senão, a janela em foco é um terminal com Claude Code ou Codex?** Lê a **última resposta** do agente. Veja como configurar em [Ler a última resposta do agente](#ler-a-última-resposta-do-agente-claude-code-e-codex).
+3. **Senão,** mostra o aviso "Nada para ler".
+
+"Texto novo" quer dizer diferente do último que o `narrate` leu. A seleção do Linux continua valendo depois de usada, então sem essa regra o atalho leria para sempre o mesmo trecho antigo.
+
 ### Como funciona a seleção
 
 O `narrate` lê a **seleção primária** do Linux: o texto que você destaca com o mouse, mesmo sem dar Ctrl+C. É o mesmo texto que aparece quando você cola com o botão do meio do mouse. Funciona em terminais, navegadores, editores, leitores de PDF e na maioria dos programas.
 
 Por segurança, ele **não** lê a área de transferência (Ctrl+C). Assim, uma senha copiada nunca é lida em voz alta por engano.
+
+---
+
+## Ler a última resposta do agente (Claude Code e Codex)
+
+Com isso configurado, você não precisa selecionar a resposta: deixe o terminal do agente em foco e aperte o atalho. **Nada é lido automaticamente.** O agente só guarda a última resposta, e ela só é lida quando você aperta o atalho.
+
+Funciona assim: ao terminar cada resposta, o agente roda `narrate --save-reply` (um *hook* `Stop`), que guarda o texto num arquivo temporário em `$XDG_RUNTIME_DIR/narrate/`. Quando você aperta o atalho, o `narrate` vê qual janela está em foco e lê a resposta mais recente de um agente rodando dentro dela.
+
+### Claude Code
+
+Adicione o hook ao seu `~/.claude/settings.json`. Se o arquivo já tiver uma seção `"hooks"` ou `"Stop"`, **acrescente** este item à lista existente em vez de substituí-la:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/narrate --save-reply",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Vale a partir da próxima sessão do Claude Code. Para conferir, use o comando `/hooks` dentro dele.
+
+### Codex
+
+Crie o arquivo `~/.codex/hooks.json` com o mesmo conteúdo acima. Se ele já existir, acrescente o item à lista `"Stop"`.
+
+Na primeira vez, o Codex **pede que você aprove o hook**: abra o Codex, digite `/hooks` e aprove o hook do `narrate`. Sem isso, ele não roda. Testado no Codex 0.167.1.
+
+### Limitações
+
+- **Só no Hyprland, por enquanto:** é por ele que o `narrate` descobre a janela em foco. Em outros desktops, o atalho continua lendo a seleção normalmente.
+- **Vários agentes na mesma janela** (painéis de tmux, tuios etc.): o atalho lê a resposta mais recente entre eles. Se quiser ouvir a de outro painel, selecione o texto.
 
 ### Voz e velocidade padrão
 
@@ -198,7 +252,8 @@ Medido num notebook com Intel Core Ultra 5 125H, sem placa de vídeo dedicada:
 |---|---|
 | `Modelo não encontrado` | Rode `narrate --download-model`. |
 | `Não consegui ler a seleção` | Instale `wl-clipboard` (Wayland) ou `xclip` (X11). Veja o [Passo 1](#passo-1-instale-as-dependências-do-sistema). |
-| `Nenhum texto selecionado` | Selecione o texto com o mouse antes de apertar o atalho. |
+| `Nada para ler` | Selecione um texto com o mouse ou deixe em foco o terminal do agente. Para a última resposta funcionar, o hook precisa estar configurado e o agente precisa ter respondido pelo menos uma vez depois disso. |
+| A última resposta do Codex não é lida | Confira se você aprovou o hook com `/hooks` dentro do Codex. |
 | Não sai som | Confira se o áudio está saindo pelo dispositivo certo (fone, caixa de som). O `narrate` usa a saída padrão do sistema. |
 | Erro mencionando `espeak` | Confira se o `espeak-ng` está instalado (`espeak-ng --version`). |
 | Erro mencionando `PortAudio` | Instale o PortAudio (veja o [Passo 1](#passo-1-instale-as-dependências-do-sistema)). |
@@ -214,7 +269,7 @@ uv tool uninstall narrate
 rm -rf ~/.local/share/narrate
 ```
 
-Lembre de remover também o atalho de teclado, se tiver configurado.
+Lembre de remover também o atalho de teclado e os hooks do `narrate` no Claude Code (`~/.claude/settings.json`) e no Codex (`~/.codex/hooks.json`), se tiver configurado.
 
 ---
 
