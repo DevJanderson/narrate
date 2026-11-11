@@ -1,0 +1,21 @@
+[project]
+name = "narrate"
+version = "0.1.0"
+description = "Read selected text aloud in Brazilian Portuguese with Kokoro TTS"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+# onnxruntime (via kokoro-onnx) has no wheels for newer Pythons yet.
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "kokoro-onnx>=0.6.1",
+    "numpy>=2.5.4",
+    "sounddevice>=0.5.6",
+]
+
+[project.scripts]
+narrate = "narrate:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
